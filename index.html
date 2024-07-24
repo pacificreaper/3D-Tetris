@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Lab 1c</title>
+
+    <style>
+        .shading {
+            position: fixed;
+            top: 20px;
+            right: 25px;
+            background: #ba548a;
+            padding: 20px;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .shading label {
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #1c1c1c;
+        }
+
+        .gameover {
+            position: fixed;
+            width: 100%;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.4);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .gameover-container {
+            color: #fefefe;
+            text-align: center;
+            font-weight: bold;
+            font-size: x-large;
+        }
+
+        .gameover-container button {
+            padding: 10px 25px;
+            background-color: #d6167d;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .gameover-container button:hover {
+            background-color: #cc438c;
+        }
+
+        .pause-screen {
+            color: #fefefe;
+            font-weight: bold;
+            font-size: x-large;
+        }
+
+        .pause {
+            position: fixed;
+            width: 100%;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.4);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .pause-container {
+            color: #fefefe;
+            font-weight: bold;
+            font-size: x-large;
+        }
+    </style>
+    <script type="text/javascript" src="gl-matrix-min.js"></script>
+    <script type="text/javascript" src="helpers.js"></script>
+    <script type="text/javascript" src="createShapes.js"></script>
+    <script type="text/javascript" src="globals.js"></script>
+    <script type="text/javascript" src="Grid.js"></script>
+    <script type="text/javascript" src="gameover.js"></script>
+    <script type="text/javascript" src="Tetracubes/Tetracube.js"></script>
+    <script type="text/javascript" src="Camera.js"></script>
+    <script type="text/javascript" src="cameraMovement.js"></script>
+    <script type="text/javascript" src="ShaderProgram.js"></script>
+    <script type="text/javascript" src="Tetracubes/StraightTetracube.js"></script>
+    <script type="text/javascript" src="Tetracubes/LTetracube.js"></script>
+    <script type="text/javascript" src="Tetracubes/TTetracube.js"></script>
+    <script type="text/javascript" src="Tetracubes/SquareTetracube.js"></script>
+    <script type="text/javascript" src="Tetracubes/SkewTetracube.js"></script>
+    <script type="text/javascript" src="Tetracubes/RightSkewTetracube.js"></script>
+    <script type="text/javascript" src="Tetracubes/LeftSkewTetracube.js"></script>
+    <script type="text/javascript" src="Tetracubes/BranchTetracube.js"></script>
+    <script type="text/javascript" src="main.js"></script>
+    <script type="text/javascript" src="userInteraction.js"></script>
+
+    <div id="shading-components" class="shading">
+        <label>Ambient Component: <input type="number" id="ambientCoefficient" min="0.0" max="1.0" value="1.0"
+                style="background: none; border: none;"></label>
+        <label>Diffuse Component: <input type="number" id="diffuseCoefficient" min="0.0" max="1.0" value="1.0"
+                style="background: none; border: none;"></label>
+        <label>Specular Component: <input type="number" id="specularCoefficient" min="0.0" max="1.0" value="1.0"
+                style="background: none; border: none;"></label>
+    </div>
+
+    <div id="gameover-screen" class="gameover">
+        <div class="gameover-container">
+            <h2>GAME OVER</h2>
+            <button id="new-game-button">New Game</button>
+        </div>
+    </div>
+
+    <div id="pause-screen" class="pause">
+        <div class="pause-container">
+            <h2>PAUSED</h2>
+        </div>
+    </div>
+
+    <script id="v-shader-nolight" type="x-shader/x-vertex">
+        precision mediump float;
+
+        attribute vec3 vertexPosition; 
+        attribute vec3 vertexColor;   
+
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+
+        varying vec3 fragmentColor;   
+
+        void main() {
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0); 
+            fragmentColor = vertexColor; 
+        }
+    </script>
+
+    <script id="v-shader-gouraudspecular" type="x-shader/x-vertex">
+        precision mediump float;
+
+        attribute vec3 vertexPosition; 
+        attribute vec3 vertexColor;    
+        attribute vec3 vertexNormal;
+
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+        uniform mat3 normalMatrix;
+        uniform vec4 lightViewPosition;
+        uniform vec3 cameraPosition;
+        uniform vec4 lightColor;
+
+        uniform float ambientCoefficient;
+        uniform float diffuseCoefficient;
+        uniform float specularCoefficient;
+
+        varying vec3 fragmentColor;  
+
+        void main() {
+            vec4 viewPosition = modelViewMatrix * vec4(vertexPosition, 1.0);
+            vec3 lightVector = normalize(lightViewPosition.xyz - viewPosition.xyz);
+            vec3 viewVector = normalize(cameraPosition.xyz - viewPosition.xyz);
+            vec3 normal = normalize(normalMatrix * vertexNormal);
+
+            float d = max(dot(normal, lightVector), 0.0);
+            vec3 diffuse = d*vertexColor*lightColor.xyz*diffuseCoefficient;
+
+            float nl = dot(normal, lightVector);
+            vec3 reflectionVector = 2.0*nl*normal - lightVector;
+
+            float ERn = pow(max(dot(reflectionVector, viewVector), 0.0), 10.0);
+            vec3 specular = ERn * lightColor.xyz * specularCoefficient;
+
+            if (d < 0.0){
+                specular = vec3(0.0,0.0,0.0);
+            }
+
+            vec3 ambientLight = vec3(0.1,0.1,0.1);
+            vec3 ambient = ambientLight*vertexColor*ambientCoefficient;
+
+            fragmentColor = ambient + diffuse + specular;
+            gl_Position = projectionMatrix * viewPosition; 
+        }
+    </script>
+
+    <script id="v-shader-phong" type="x-shader/x-vertex">
+        attribute vec3 vertexPosition;
+        attribute vec3 vertexNormal;
+        attribute vec3 vertexColor;
+
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+        uniform mat3 normalMatrix;
+        uniform vec4 lightViewPosition;
+        uniform vec3 cameraPosition;
+
+        varying vec3 normalVector;
+        varying vec3 viewVector;
+        varying vec3 colorVector;
+        varying vec3 lightVector;
+
+        void main() {
+            normalVector = normalize(normalMatrix * vertexNormal);
+            colorVector = vertexColor;
+            vec4 viewPosition = modelViewMatrix * vec4(vertexPosition, 1.0);
+            viewVector = normalize(cameraPosition - viewPosition.xyz);
+            lightVector = normalize(lightViewPosition.xyz - viewPosition.xyz);
+            gl_Position = projectionMatrix * viewPosition;
+        }
+    </script>
+
+    <script id="f-shader-phongspecular" type="x-shader/x-fragment">
+        precision mediump float;
+
+        varying vec3 viewVector;
+        varying vec3 normalVector;
+        varying vec3 colorVector;
+        varying vec3 lightVector;
+
+        uniform float ambientCoefficient;
+        uniform float diffuseCoefficient;
+        uniform float specularCoefficient;
+
+        uniform vec4 lightColor;
+        uniform float time;
+
+        void main() {
+            vec3 normal = normalize(normalVector);
+            vec3 light = normalize(lightVector);
+            vec3 view = normalize(viewVector);
+
+            float nl = dot(normal, light);
+            vec3 reflectionVector = 2.0*nl*normal - light;
+
+
+            float d = max(dot(normal, light), 0.0);
+            vec3 diffuse = d*colorVector*lightColor.xyz*diffuseCoefficient;
+
+            float ERn = pow(max(dot(reflectionVector, view), 0.0), 10.0); 
+            vec3 specular = ERn * lightColor.xyz * specularCoefficient;
+
+            vec3 ambientLight = vec3(0.1,0.1,0.1);
+            vec3 ambient = ambientLight*colorVector*ambientCoefficient;
+
+            vec3 fragmentColor = ambient + diffuse + specular;
+
+            // Bonus
+            float pulse = 0.5 + 0.3*sin(time);
+            vec3 pulseColor = mix(colorVector, lightColor.xyz, pulse);
+            fragmentColor *= pulseColor;
+
+            gl_FragColor = vec4(fragmentColor, 1.0);
+        }
+
+    </script>
+
+    <script id="f-shader" type="x-shader/x-fragment">
+        precision mediump float;
+        uniform float time;
+        uniform vec4 lightColor;
+
+        varying vec3 fragmentColor;
+    
+        void main() {
+            // Bonus
+            float pulse = 0.5 + 0.3*sin(time);
+            vec3 vColor = fragmentColor;
+            vec3 pulseColor = mix(vColor, lightColor.xyz, pulse);
+            vColor *= pulseColor;
+
+            gl_FragColor = vec4(vColor, 1.0);
+           
+        }
+    </script>
+</head>
+
+<body>
+    <canvas id="canvas" width="800" height="800"></canvas>
+</body>
+
+</html>
